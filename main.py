@@ -122,11 +122,31 @@ class SearchService:
 
     @queue_consuming_event_loop
     def process_streaming_request(self, request_json, enqueue_cb):
-        enqueue_cb((str(request_json), "parsed inputs"))
+        if isinstance(request_json, dict):
+            enqueue_cb((json.dumps(request_json), "parsed inputs"))
+        elif isinstance(request_json, str):
+            enqueue_cb((request_json, "parsed inputs"))
+        else:
+            enqueue_cb((str(request_json), "parsed inputs"))
         enqueue_cb(("data payload 1", "event 1"))
         enqueue_cb(("data payload 2", "event 2"))
         enqueue_cb(("data payload 3", "event 3"))
         enqueue_cb(("Finished", "done"))
+
+async def stream_data(request):
+    async def data_stream():
+        yield json.dumps({'message': 'Hello'})
+        await asyncio.sleep(1)  # Simulate some processing time
+        yield json.dumps({'message': 'World'})
+        await asyncio.sleep(1)  # Simulate some processing time
+        yield json.dumps({'message': 'Goodbye'})
+
+    headers = {'Content-Type': 'text/event-stream'}
+    async with sse_response(request, headers=headers) as resp:
+        async for data in data_stream():
+            await resp.send(data)
+
+    return resp
 
 async def ping(request):
     return web.Response(text="Ping success")
@@ -147,9 +167,9 @@ async def streaming_end_point(request):
     await response.prepare(request)
 
     # Send events to the client
-    await response.write(b'data: Hello, world!\n\n')
-    await response.write(b'data: Goodbye, world!\n\n')
-    await response.write(b'data: This is a streaming response.\n\n')
+    await response.write(b'msg: Hello, world!\n\n')
+    await response.write(b'msg: Goodbye, world!\n\n')
+    await response.write(b'msg: This is a streaming response.\n\n')
 
     return response
 
@@ -206,7 +226,8 @@ def monolith_app():
         web.get("/ping", ping),
         web.get("/streaming", streaming_end_point),
         web.get("/non_streaming_api", search_handler.process_non_streaming_request),
-        web.get("/streaming_api", search_handler.process_streaming_request)
+        web.get("/streaming_api", search_handler.process_streaming_request),
+        web.get('/stream', stream_data)
     ])
     return app
 
